@@ -16,7 +16,7 @@ fi
 
 menu="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
 if [[ -f "$menu" ]] && ! grep -q 'trigger.virtual-machines' "$menu"; then
-  sed -i '/"trigger":.*"label":"Acciones"/a\  "trigger.virtual-machines": {"icon":"󰍹","label":"Máquinas virtuales","action":"omarchy-launch-floating-terminal-with-presentation omarchy-freerdp-manager"},' "$menu"
+  sed -i '/"trigger":.*"label":"Acciones"/a\  "trigger.virtual-machines": {"icon":"RDP","label":"Máquinas virtuales","action":"omarchy-launch-floating-terminal-with-presentation omarchy-freerdp-manager"},' "$menu"
 fi
 
 printf 'FreeRDP Manager instalado. Reinicia el shell con: omarchy restart shell\n'

@@ -13,7 +13,7 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󰍹"
+    text: "RDP"
     foreground: "#ef4444"
     useActiveColor: false
     tooltipText: "Gestionar máquinas virtuales (FreeRDP)"
