@@ -2,6 +2,8 @@
 
 Gestor de máquinas virtuales RDP para Omarchy usando FreeRDP. Permite guardar perfiles, conectarse desde una terminal flotante y conservar las contraseñas en el llavero del sistema.
 
+![Vista previa del plugin](preview.png)
+
 ## Requisitos
 
 Se necesita:
