@@ -5,7 +5,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 plugin_dir="$HOME/.config/omarchy/plugins/cipriano.freerdp-manager"
 bin_dir="$HOME/.local/bin"
 mkdir -p "$plugin_dir" "$bin_dir"
-cp "$root/plugin/manifest.json" "$root/plugin/BarWidget.qml" "$plugin_dir/"
+cp "$root/manifest.json" "$root/BarWidget.qml" "$plugin_dir/"
 cp "$root/bin/omarchy-freerdp-manager" "$root/bin/omarchy-freerdp-toggle" "$bin_dir/"
 chmod +x "$bin_dir/omarchy-freerdp-manager" "$bin_dir/omarchy-freerdp-toggle"
 
