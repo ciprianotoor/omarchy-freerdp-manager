@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "cipriano.freerdp-manager",
+  "name": "FreeRDP Manager",
+  "version": "1.0.0",
+  "author": "Cipriano",
+  "license": "MIT",
+  "description": "Acceso rápido al gestor de máquinas virtuales FreeRDP",
+  "kinds": ["bar-widget"],
+  "activation": "on-demand",
+  "entryPoints": {"barWidget": "BarWidget.qml"},
+  "barWidget": {
+    "displayName": "FreeRDP Manager",
+    "description": "Abrir y administrar conexiones RDP",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

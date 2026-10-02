@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+APP="omarchy-freerdp-manager"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy/freerdp"
+PROFILE_FILE="$DATA_DIR/profiles.json"
+mkdir -p "$DATA_DIR"
+chmod 700 "$DATA_DIR"
+[[ -f "$PROFILE_FILE" ]] || printf '%s\n' '[]' > "$PROFILE_FILE"
+
+die() { printf '\nError: %s\n' "$*" >&2; read -r -p 'Enter para continuar…' _; }
+pause() { printf '\n'; read -r -p 'Enter para continuar…' _; }
+need() { command -v "$1" >/dev/null 2>&1 || { die "Falta el comando: $1"; return 1; }; }
+
+valid_id() { [[ "$1" =~ ^[a-zA-Z0-9._-]+$ ]]; }
+profile_exists() { jq -e --arg id "$1" 'any(.[]; .id == $id)' "$PROFILE_FILE" >/dev/null; }
+profile_name() { jq -r --arg id "$1" '.[] | select(.id == $id) | .name' "$PROFILE_FILE"; }
+
+secret_key() { printf '%s' "omarchy-freerdp:$1"; }
+get_secret() { secret-tool lookup service "$APP" profile "$(secret_key "$1")" 2>/dev/null || true; }
+set_secret() { secret-tool store --label="FreeRDP $(profile_name "$1")" service "$APP" profile "$(secret_key "$1")"; }
+clear_secret() { secret-tool clear service "$APP" profile "$(secret_key "$1")" >/dev/null 2>&1 || true; }
+
+choose_profile() {
+  local selected
+  selected=$(jq -r '.[] | [.id,.name,.host,.port,.user] | @tsv' "$PROFILE_FILE" \
+    | fzf --height=60% --layout=reverse --border --delimiter=$'\t' \
+      --with-nth=2,3,4,5 --prompt='Máquina > ' --header='Nombre  Host  Puerto  Usuario' \
+    | cut -f1) || return 1
+  [[ -n "$selected" ]] && printf '%s' "$selected"
+}
+
+add_profile() {
+  local id name host port user domain gateway password
+  id=$(gum input --placeholder 'identificador, ej. servidor-produccion' --prompt 'ID: ') || return
+  valid_id "$id" || { die 'El ID solo puede contener letras, números, punto, guion y guion bajo.'; return; }
+  profile_exists "$id" && { die 'Ya existe un perfil con ese ID.'; return; }
+  name=$(gum input --placeholder 'Servidor de producción' --prompt 'Nombre: ') || return
+  host=$(gum input --placeholder '192.168.1.50 o vm.example.com' --prompt 'Host: ') || return
+  port=$(gum input --value '3389' --prompt 'Puerto: ') || return
+  user=$(gum input --placeholder 'Administrador' --prompt 'Usuario: ') || return
+  domain=$(gum input --placeholder 'opcional' --prompt 'Dominio: ') || return
+  gateway=$(gum input --placeholder 'opcional' --prompt 'Gateway RDP: ') || return
+  password=$(gum input --password --prompt 'Contraseña (se guardará en el llavero): ') || return
+  [[ -n "$name" && -n "$host" && "$port" =~ ^[0-9]+$ ]] || { die 'Nombre, host y puerto válido son obligatorios.'; return; }
+  jq --arg id "$id" --arg name "$name" --arg host "$host" --arg port "$port" \
+    --arg user "$user" --arg domain "$domain" --arg gateway "$gateway" \
+    '. += [{id:$id,name:$name,host:$host,port:($port|tonumber),user:$user,domain:$domain,gateway:$gateway}]' \
+    "$PROFILE_FILE" > "$PROFILE_FILE.tmp" && mv "$PROFILE_FILE.tmp" "$PROFILE_FILE"
+  if [[ -n "$password" ]]; then printf '%s' "$password" | set_secret "$id"; fi
+  printf '\nPerfil guardado: %s\n' "$name"
+  pause
+}
+
+edit_profile() {
+  local id name host port user domain gateway
+  id=$(choose_profile) || return
+  name=$(jq -r --arg id "$id" '.[]|select(.id==$id)|.name' "$PROFILE_FILE")
+  host=$(jq -r --arg id "$id" '.[]|select(.id==$id)|.host' "$PROFILE_FILE")
+  port=$(jq -r --arg id "$id" '.[]|select(.id==$id)|.port' "$PROFILE_FILE")
+  user=$(jq -r --arg id "$id" '.[]|select(.id==$id)|.user' "$PROFILE_FILE")
+  domain=$(jq -r --arg id "$id" '.[]|select(.id==$id)|.domain // ""' "$PROFILE_FILE")
+  gateway=$(jq -r --arg id "$id" '.[]|select(.id==$id)|.gateway // ""' "$PROFILE_FILE")
+  name=$(gum input --value "$name" --prompt 'Nombre: ') || return
+  host=$(gum input --value "$host" --prompt 'Host: ') || return
+  port=$(gum input --value "$port" --prompt 'Puerto: ') || return
+  user=$(gum input --value "$user" --prompt 'Usuario: ') || return
+  domain=$(gum input --value "$domain" --prompt 'Dominio: ') || return
+  gateway=$(gum input --value "$gateway" --prompt 'Gateway RDP: ') || return
+  jq --arg id "$id" --arg name "$name" --arg host "$host" --arg port "$port" --arg user "$user" --arg domain "$domain" --arg gateway "$gateway" \
+    'map(if .id==$id then .name=$name|.host=$host|.port=($port|tonumber)|.user=$user|.domain=$domain|.gateway=$gateway else . end)' \
+    "$PROFILE_FILE" > "$PROFILE_FILE.tmp" && mv "$PROFILE_FILE.tmp" "$PROFILE_FILE"
+  if gum confirm '¿Cambiar la contraseña guardada?'; then
+    local password
+    password=$(gum input --password --prompt 'Nueva contraseña: ') || return
+    printf '%s' "$password" | set_secret "$id"
+  fi
+  pause
+}
+
+connect_profile() {
+  local id host port user domain gateway password args=()
+  id=$(choose_profile) || return
+  host=$(jq -r --arg id "$id" '.[]|select(.id==$id)|.host' "$PROFILE_FILE")
+  port=$(jq -r --arg id "$id" '.[]|select(.id==$id)|.port' "$PROFILE_FILE")
+  user=$(jq -r --arg id "$id" '.[]|select(.id==$id)|.user' "$PROFILE_FILE")
+  domain=$(jq -r --arg id "$id" '.[]|select(.id==$id)|.domain // ""' "$PROFILE_FILE")
+  gateway=$(jq -r --arg id "$id" '.[]|select(.id==$id)|.gateway // ""' "$PROFILE_FILE")
+  local freerdp_bin
+  freerdp_bin=$(command -v xfreerdp3 || command -v xfreerdp || true)
+  [[ -n "$freerdp_bin" ]] || { die 'FreeRDP no está disponible (se esperaba xfreerdp3 o xfreerdp).'; return; }
+  password=$(get_secret "$id")
+  args+=("/v:$host:$port" "/u:$user" "/dynamic-resolution" "/clipboard" "/cert:tofu")
+  [[ -n "$password" ]] && args+=("/p:$password") || args+=("/prompt")
+  [[ -n "$domain" ]] && args+=("/d:$domain")
+  [[ -n "$gateway" ]] && args+=("/g:$gateway")
+  clear
+  printf 'Conectando a %s (%s)…\n\n' "$(profile_name "$id")" "$host"
+  "$freerdp_bin" "${args[@]}"
+  pause
+}
+
+delete_profile() {
+  local id
+  id=$(choose_profile) || return
+  gum confirm "¿Eliminar $(profile_name "$id") y su contraseña?" || return
+  jq --arg id "$id" 'map(select(.id != $id))' "$PROFILE_FILE" > "$PROFILE_FILE.tmp" && mv "$PROFILE_FILE.tmp" "$PROFILE_FILE"
+  clear_secret "$id"
+}
+
+list_profiles() {
+  clear
+  if jq -e 'length == 0' "$PROFILE_FILE" >/dev/null; then printf 'No hay máquinas guardadas.\n'; else
+    jq -r '.[] | "\(.name)\t\(.host):\(.port)\t\(.user)\t\(.domain // "")"' "$PROFILE_FILE" | column -t -s $'\t'
+  fi
+  pause
+}
+
+main() {
+  need jq || exit 1; need fzf || exit 1; need gum || exit 1
+  while true; do
+    clear
+    printf '\033[1;31m󰢹 FreeRDP — Gestor de máquinas virtuales\033[0m\n\n'
+    case "$(gum choose --header 'Selecciona una acción' 'Conectar' 'Agregar máquina' 'Editar máquina' 'Eliminar máquina' 'Listar máquinas' 'Salir')" in
+      'Conectar') connect_profile || true;;
+      'Agregar máquina') add_profile || true;;
+      'Editar máquina') edit_profile || true;;
+      'Eliminar máquina') delete_profile || true;;
+      'Listar máquinas') list_profiles || true;;
+      'Salir'|'') break;;
+    esac
+  done
+}
+main "$@"

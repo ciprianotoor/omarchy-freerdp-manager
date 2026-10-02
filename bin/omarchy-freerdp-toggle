@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if hyprctl clients -j | jq -e 'any(.[]; .title == "FreeRDP Manager")' >/dev/null 2>&1; then
+  [[ "${1:-toggle}" == "toggle" ]] || exit 0
+  hyprctl dispatch closewindow 'title:^(FreeRDP Manager)$' >/dev/null
+else
+  omarchy-launch-floating-terminal-with-presentation omarchy-freerdp-manager
+fi
